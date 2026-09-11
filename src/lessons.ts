@@ -9,7 +9,7 @@ export interface Lesson {
   id: string
   category: string
   title: string
-  kind: 'Configuration' | 'Provider' | 'State' | 'Query' | 'Mutation' | 'Watcher' | 'Action' | 'Utility'
+  kind: 'Configuration' | 'Provider' | 'State' | 'Query' | 'Mutation' | 'Watcher' | 'Action' | 'Utility' | 'Exercise'
   summary: string
   code: string
   parameters: ApiField[]
@@ -23,7 +23,9 @@ export const categories = [
   '客户端 Hooks',
   '网络与查询',
   '交易与签名',
+  'ENS',
   '智能合约',
+  '实战练习',
   'Miscellaneous',
 ] as const
 
@@ -33,6 +35,8 @@ const liveDemoIds = new Set([
   'useConnectors',
   'useConnect',
   'useDisconnect',
+  'useReconnect',
+  'useSwitchConnection',
   'useConfig',
   'useChainId',
   'useClient',
@@ -46,12 +50,20 @@ const liveDemoIds = new Set([
   'useGasPrice',
   'useEstimateFeesPerGas',
   'useEstimateGas',
+  'useBlock',
+  'useTransactionCount',
+  'useBytecode',
+  'usePrepareTransactionRequest',
+  'useWatchBlockNumber',
+  'useEnsName',
+  'useEnsAddress',
   'useSendTransaction',
   'useWaitForTransactionReceipt',
   'useSignMessage',
   'useVerifyMessage',
   'useSignTypedData',
   'useVerifyTypedData',
+  'sepoliaTransactionExercise',
 ])
 
 export function hasLiveDemo(lessonId: string) {
@@ -528,6 +540,87 @@ if (disconnect.isError) console.error(disconnect.error.message)
     notes: ['断开应用连接不等同于删除钱包账户或锁定钱包。'],
   },
   {
+    id: 'useReconnect',
+    category: '钱包连接',
+    title: 'useReconnect',
+    kind: 'Mutation',
+    summary: '重新尝试连接之前授权过的 Connector，常用于手动恢复持久化的钱包会话。',
+    code: `// useReconnect 创建手动恢复连接的 Mutation
+const reconnect = useReconnect({
+  mutation: {
+    // 恢复失败后不应无限尝试或反复弹出钱包
+    retry: false,
+    onSuccess(connections) {
+      console.log('恢复的连接数量', connections.length)
+    },
+    onError(error) {
+      console.error(error.message)
+    },
+  },
+})
+
+// 不传参数时按 Config 中已注册的 Connector 尝试恢复
+<button
+  disabled={reconnect.isPending}
+  onClick={() => reconnect.mutate()}
+>
+  重新连接
+</button>
+
+// 也可以限制本次只尝试指定 Connector
+// reconnect.mutate({ connectors: [selectedConnector] })`,
+    parameters: [
+      { name: 'connectors', type: 'readonly (Connector | CreateConnectorFn)[]', description: '本次要尝试恢复的连接器；省略时使用 Config 中的连接器。' },
+      ...commonMutationParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'Connection[] | undefined', description: '成功恢复的全部连接。' },
+      ...commonMutationReturns,
+    ],
+    notes: ['WagmiProvider 默认会在挂载时自动恢复连接，只有提供手动重试入口时才需要此 Hook。', 'reconnect、reconnectAsync 和返回的 connectors 字段已弃用，应使用 mutate、mutateAsync 与 useConnectors。', '恢复连接并不绕过钱包授权，Connector 仍可能拒绝或要求用户交互。'],
+  },
+  {
+    id: 'useSwitchConnection',
+    category: '钱包连接',
+    title: 'useSwitchConnection',
+    kind: 'Mutation',
+    summary: '在多个已经建立的钱包连接之间切换当前活动连接，而不是切换区块链网络。',
+    code: `// 所有已建立连接由 useConnections 提供
+const connections = useConnections()
+const switchConnection = useSwitchConnection({
+  mutation: {
+    retry: false,
+    onSuccess(data) {
+      console.log('活动账户', data.accounts[0])
+      console.log('活动链', data.chainId)
+    },
+  },
+})
+
+return connections.map((connection) => (
+  <button
+    key={connection.connector.uid}
+    disabled={switchConnection.isPending}
+    onClick={() => switchConnection.mutate({
+      // connector 必须属于一个当前已建立的连接
+      connector: connection.connector,
+    })}
+  >
+    切换到 {connection.connector.name}
+  </button>
+))`,
+    parameters: [
+      { name: 'connector', type: 'Connector', required: true, description: '目标活动连接的 Connector，必须已经连接。' },
+      ...commonMutationParameters,
+    ],
+    returns: [
+      { name: 'data.accounts', type: 'readonly Address[]', description: '切换后的活动连接账户。' },
+      { name: 'data.chainId', type: 'number', description: '切换后的活动连接链 ID。' },
+      ...commonMutationReturns,
+    ],
+    notes: ['它切换的是多个钱包连接，不等同于 useSwitchChain 切换网络。', '只有一个活动连接时通常不需要这个 Hook。', 'switchConnection、switchConnectionAsync、switchAccount 等返回别名已弃用，使用 mutate 或 mutateAsync。'],
+  },
+  {
     id: 'useConfig',
     category: '客户端 Hooks',
     title: 'useConfig',
@@ -877,6 +970,83 @@ if (balance.isError) console.error(balance.error.message)`,
     notes: ['展示使用 formatUnits，不要把 value 转成 number。', 'blockNumber、blockTag、blockHash 三者互斥。', 'ERC-20 余额应使用 useReadContract 调用 balanceOf。'],
   },
   {
+    id: 'useTransactionCount',
+    category: '网络与查询',
+    title: 'useTransactionCount',
+    kind: 'Query',
+    summary: '读取账户已经使用的交易 Nonce，可用于检查交易序号和 pending 交易队列。',
+    code: `// 查询账户下一笔交易通常应使用的 Nonce
+const transactionCount = useTransactionCount({
+  address,
+  chainId: sepolia.id,
+  // pending 会同时考虑节点交易池中尚未打包的交易
+  blockTag: 'pending',
+  query: {
+    // 地址准备完成后再查询
+    enabled: Boolean(address),
+    staleTime: 5_000,
+    retry: 1,
+  },
+})
+
+// data 是安全范围内的整数 Nonce，不是交易总数量统计
+console.log(transactionCount.data)
+console.log(transactionCount.isFetching, transactionCount.error)`,
+    parameters: [
+      { name: 'address', type: 'Address', required: true, description: '需要查询 Nonce 的账户地址。' },
+      { name: 'chainId', type: 'number', description: '查询网络。' },
+      { name: 'blockNumber', type: 'bigint', description: '读取指定区块高度下的 Nonce。' },
+      { name: 'blockTag', type: 'BlockTag', description: 'latest、pending、safe 或 finalized 等区块标签。' },
+      { name: 'blockHash', type: 'Hash', description: '读取指定区块 Hash 下的 Nonce。' },
+      { name: 'requireCanonical', type: 'boolean', description: '使用 blockHash 时，是否要求该区块仍在规范链上。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'number | undefined', description: '账户在目标区块状态下的交易 Nonce。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['Nonce 表示账户发送交易的序号，不代表收到的交易数量。', 'latest 只计算已确认交易，pending 还会考虑节点已知的待处理交易。', '普通钱包发送交易时通常由 Wallet Client 自动管理 Nonce。'],
+  },
+  {
+    id: 'useBytecode',
+    category: '网络与查询',
+    title: 'useBytecode',
+    kind: 'Query',
+    summary: '读取地址当前部署的 EVM 运行时代码，用于区分普通账户与已部署合约。',
+    code: `// 读取主网 WETH 合约的 runtime bytecode
+const bytecode = useBytecode({
+  address: wethAddress,
+  chainId: mainnet.id,
+  query: {
+    enabled: Boolean(wethAddress),
+    // 已部署代码通常不变，可以长时间缓存
+    staleTime: Infinity,
+    retry: 2,
+  },
+})
+
+// data 是 0x 开头的 Hex；EOA 或该状态下无代码时为 undefined
+const byteLength = bytecode.data
+  ? (bytecode.data.length - 2) / 2
+  : 0
+
+console.log(byteLength, bytecode.isFetching)`,
+    parameters: [
+      { name: 'address', type: 'Address', required: true, description: '需要读取代码的地址。' },
+      { name: 'chainId', type: 'number', description: '目标网络。' },
+      { name: 'blockNumber', type: 'bigint', description: '读取指定历史区块状态。' },
+      { name: 'blockTag', type: 'BlockTag', description: '按 latest、safe、finalized 等标签读取。' },
+      { name: 'blockHash', type: 'Hash', description: '读取指定区块 Hash 下的状态。' },
+      { name: 'requireCanonical', type: 'boolean', description: '使用 blockHash 时，是否要求该区块仍在规范链上。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'Hex | undefined', description: '合约 runtime bytecode；没有代码时为 undefined。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['有 bytecode 说明该状态下地址是合约，但不能据此判断合约是否安全。', '代理合约地址返回的是代理代码，业务实现可能位于另一个地址。', '合约创建交易执行期间读取自身地址，仍可能得到空代码。'],
+  },
+  {
     id: 'useGasPrice',
     category: '网络与查询',
     title: 'useGasPrice',
@@ -995,6 +1165,90 @@ if (estimate.isError) console.error(estimate.error.message)`,
     notes: ['估算不会发送交易，但节点会模拟执行，因此合约 revert 会表现为查询错误。', '链上状态可能在广播前变化，Gas 估算不是绝对保证。', 'Gas Limit 与 Gas Price 含义不同，总费用需要把两者相乘。'],
   },
   {
+    id: 'useBlock',
+    category: '网络与查询',
+    title: 'useBlock',
+    kind: 'Query',
+    summary: '读取完整区块数据，包括 Hash、时间戳、Gas 使用量和交易列表。',
+    code: `// 获取 Sepolia 最新区块的完整头信息
+const block = useBlock({
+  chainId: sepolia.id,
+  blockTag: 'latest',
+  // false 时 transactions 只包含交易 Hash，数据量更小
+  includeTransactions: false,
+  query: {
+    staleTime: 5_000,
+    retry: 2,
+  },
+})
+
+if (block.data) {
+  // 区块高度和时间戳都是 bigint
+  console.log(block.data.number?.toString())
+  console.log(block.data.timestamp.toString())
+  console.log(block.data.hash)
+  console.log(block.data.transactions.length)
+}
+
+console.log(block.isFetching, block.error)`,
+    parameters: [
+      { name: 'chainId', type: 'number', description: '目标网络。' },
+      { name: 'blockHash', type: 'Hash', description: '按区块 Hash 查询。' },
+      { name: 'blockNumber', type: 'bigint', description: '按区块高度查询。' },
+      { name: 'blockTag', type: 'BlockTag', description: 'latest、pending、safe 或 finalized 等标签。' },
+      { name: 'includeTransactions', type: 'boolean', description: '是否返回完整交易对象；默认只返回交易 Hash。' },
+      { name: 'watch', type: 'boolean | WatchOptions', description: '是否在新区块到达时更新当前 Query 数据。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data.number', type: 'bigint | null', description: '区块高度；pending 区块可能为 null。' },
+      { name: 'data.hash', type: 'Hash | null', description: '区块 Hash；pending 区块可能为 null。' },
+      { name: 'data.timestamp', type: 'bigint', description: '区块 Unix 秒时间戳。' },
+      { name: 'data.transactions', type: 'Hash[] | Transaction[]', description: '交易 Hash 或完整交易对象数组。' },
+      { name: 'data.gasUsed / gasLimit', type: 'bigint', description: '区块已使用和允许的 Gas 数量。' },
+      { name: 'data.chainId', type: 'number', description: 'wagmi 附加的来源链 ID。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['includeTransactions: true 会显著增加 RPC 响应体积。', 'watch 会更新同一 Query 缓存；只关心高度时 useBlockNumber 更轻量。', '读取固定 blockHash 或 blockNumber 时通常不应再开启 watch。'],
+  },
+  {
+    id: 'useWatchBlockNumber',
+    category: '网络与查询',
+    title: 'useWatchBlockNumber',
+    kind: 'Watcher',
+    summary: '在每次发现新区块高度时执行回调，适合触发外部副作用而不是维护 Query 数据。',
+    code: `// useWatchBlockNumber 没有返回数据，结果通过回调到达
+useWatchBlockNumber({
+  chainId: sepolia.id,
+  // HTTP Transport 下通常使用轮询；WebSocket 可使用订阅
+  poll: true,
+  pollingInterval: 12_000,
+  // 订阅建立后立即回调当前高度
+  emitOnBegin: true,
+  // 补发两次轮询之间可能错过的区块
+  emitMissed: true,
+  onBlockNumber(blockNumber, previousBlockNumber) {
+    console.log('新区块', blockNumber.toString())
+    console.log('上一个区块', previousBlockNumber?.toString())
+  },
+  onError(error) {
+    console.error(error.message)
+  },
+})`,
+    parameters: [
+      { name: 'onBlockNumber', type: '(blockNumber, previousBlockNumber?) => void', required: true, description: '检测到区块高度时执行的回调。' },
+      { name: 'chainId', type: 'number', description: '监听网络。' },
+      { name: 'enabled', type: 'boolean', description: '是否启用监听；页面不可见时可以关闭。' },
+      { name: 'emitOnBegin', type: 'boolean', description: '订阅开始时是否立即返回当前区块号。' },
+      { name: 'emitMissed', type: 'boolean', description: '是否依次补发轮询间隔内错过的区块号。' },
+      { name: 'poll', type: 'boolean', description: '是否强制使用轮询。' },
+      { name: 'pollingInterval', type: 'number', description: '轮询间隔，单位毫秒。' },
+      { name: 'onError', type: '(error) => void', description: '监听发生错误时的回调。' },
+    ],
+    returns: [],
+    notes: ['这是订阅 Hook，不返回 data、isFetching 或 refetch。', '需要缓存和渲染区块号时优先使用 useBlockNumber({ watch: true })。', '回调触发频率可能很高，网络请求和业务副作用需要节流与幂等。'],
+  },
+  {
     id: 'useBlockNumber',
     category: '网络与查询',
     title: 'useBlockNumber',
@@ -1035,6 +1289,57 @@ console.log(blockNumber.fetchStatus, blockNumber.isFetching)
       ...commonQueryReturns,
     ],
     notes: ['长时间 watch 会持续产生 RPC 请求，应根据页面可见性控制。'],
+  },
+  {
+    id: 'usePrepareTransactionRequest',
+    category: '交易与签名',
+    title: 'usePrepareTransactionRequest',
+    kind: 'Query',
+    summary: '在签名前填充并校验交易请求，取得 Gas、Nonce、费用和交易类型等完整字段。',
+    code: `// 准备交易只调用 RPC，不会弹出钱包或广播交易
+const prepared = usePrepareTransactionRequest({
+  account: address,
+  to: recipient,
+  value: parseEther(amountText),
+  chainId: sepolia.id,
+  query: {
+    // 账户、地址和金额校验完成后才准备请求
+    enabled: Boolean(address && recipient && amountText),
+    staleTime: 5_000,
+    // 合约 revert 等确定性错误不应自动重试
+    retry: false,
+  },
+})
+
+if (prepared.data) {
+  // 返回值包含节点填充后的 Gas、Nonce 和 EIP-1559 费用
+  console.log(prepared.data.gas?.toString())
+  console.log(prepared.data.nonce)
+  console.log(prepared.data.maxFeePerGas?.toString())
+}
+
+// 真正发送仍必须由用户点击并交给钱包签名
+// sendTransaction.mutate(prepared.data)`,
+    parameters: [
+      { name: 'account', type: 'Address | Account', description: '交易发送账户；省略时使用当前 Connector Client 的账户。' },
+      { name: 'to', type: 'Address', description: '交易接收地址；to 与非空 calls 至少提供一个。' },
+      { name: 'calls', type: 'Calls', description: 'EIP-5792 批量调用；使用非空 calls 时可以省略 to。' },
+      { name: 'value', type: 'bigint', description: '附带的原生币数量，单位 Wei。' },
+      { name: 'data', type: 'Hex', description: '合约调用数据。' },
+      { name: 'chainId', type: 'number', description: '准备交易的网络。' },
+      { name: 'parameters', type: 'readonly PrepareTransactionRequestParameterType[]', description: '要求节点准备的字段列表；默认准备标准交易字段。' },
+      { name: 'connector', type: 'Connector', description: '需要使用 Connector Client 时指定钱包连接器。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'TransactionRequest | undefined', description: '节点填充并校验后的完整交易请求。' },
+      { name: 'data.gas', type: 'bigint', description: '建议 Gas Limit。' },
+      { name: 'data.nonce', type: 'number', description: '账户交易 Nonce。' },
+      { name: 'data.maxFeePerGas / maxPriorityFeePerGas', type: 'bigint', description: 'EIP-1559 费用字段。' },
+      { name: 'data.chainId', type: 'number', description: '目标链 ID。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['准备成功不代表交易已签名或广播。', '链上状态和费用可能继续变化，提交前钱包或节点仍可能重新估算。', '不要在 query.data 出现后自动发送交易，必须等待明确用户操作。'],
   },
   {
     id: 'useSendTransaction',
@@ -1176,6 +1481,43 @@ console.log(receipt.isFetching, receipt.error)`,
       ...commonQueryReturns,
     ],
     notes: ['它只查询一次普通 Receipt，不负责轮询等待或交易替换检测。', '刚获得 Hash 后应使用 useWaitForTransactionReceipt。', 'Receipt 存在仍必须检查 status，reverted 也是已打包的 Receipt。'],
+  },
+  {
+    id: 'useTransactionConfirmations',
+    category: '交易与签名',
+    title: 'useTransactionConfirmations',
+    kind: 'Query',
+    summary: '计算一笔已打包交易当前拥有的区块确认数，用于支付和充值的安全阈值判断。',
+    code: `// 根据交易 Hash 查询当前确认数
+const confirmations = useTransactionConfirmations({
+  hash: transactionHash,
+  chainId: sepolia.id,
+  query: {
+    // 没有 Hash 时不发送请求
+    enabled: Boolean(transactionHash),
+    // 每 12 秒更新一次确认数
+    refetchInterval: 12_000,
+    retry: 2,
+  },
+})
+
+// 返回 bigint，业务阈值也使用 bigint 比较
+const isFinalEnough = (confirmations.data ?? 0n) >= 3n
+console.log(confirmations.data?.toString(), isFinalEnough)
+
+// 支付业务不能只看确认数，还必须先检查 Receipt status
+console.log(confirmations.isFetching, confirmations.error)`,
+    parameters: [
+      { name: 'hash', type: 'Hash', description: '需要计算确认数的交易 Hash。' },
+      { name: 'transactionReceipt', type: 'TransactionReceipt', description: '已有 Receipt 时可以直接传入，减少一次查询。' },
+      { name: 'chainId', type: 'number', description: '交易所在链。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'bigint | undefined', description: '当前交易确认数。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['确认数是 bigint，应与 1n、3n 等 bigint 阈值比较。', '交易未打包时无法产生确认数，应先用 useWaitForTransactionReceipt 等待。', '链重组可能改变交易所在区块，支付业务仍需后端持续确认和幂等处理。'],
   },
   {
     id: 'useWaitForTransactionReceipt',
@@ -1447,6 +1789,84 @@ console.log(verification.status, verification.isFetching)`,
     notes: ['domain、types、primaryType 或 message 任一值变化都会导致验证失败。', 'domain.chainId 是签名内容的一部分，Hook 的 chainId 还决定使用哪条链的 Public Client。', '授权、Permit 和订单签名必须在后端或合约侧再次验证 nonce、过期时间与业务权限。'],
   },
   {
+    id: 'useEnsName',
+    category: 'ENS',
+    title: 'useEnsName',
+    kind: 'Query',
+    summary: '对 Ethereum 地址执行 ENS 反向解析，获取账户设置的主 ENS 名称。',
+    code: `// ENS 注册表主要位于 Ethereum Mainnet，应明确指定 mainnet
+const ensName = useEnsName({
+  address,
+  chainId: mainnet.id,
+  query: {
+    enabled: Boolean(address),
+    // ENS 名称变化频率较低，可缓存 5 分钟
+    staleTime: 5 * 60_000,
+    retry: 2,
+  },
+})
+
+// 没有设置反向记录时 data 为 null，不代表查询失败
+const displayName = ensName.data ?? shortAddress(address)
+console.log(displayName, ensName.isFetching)
+if (ensName.isError) console.error(ensName.error.message)`,
+    parameters: [
+      { name: 'address', type: 'Address', required: true, description: '需要执行反向解析的 Ethereum 地址。' },
+      { name: 'chainId', type: 'number', description: 'ENS 注册表所在链，通常为 Ethereum Mainnet。' },
+      { name: 'blockNumber / blockTag', type: 'bigint / BlockTag', description: '按指定链上状态解析。' },
+      { name: 'coinType', type: 'bigint', description: 'ENSIP-9 币种类型；Ethereum 默认为 60n。' },
+      { name: 'gatewayUrls', type: 'string[]', description: '解析 CCIP Read 名称时使用的网关地址。' },
+      { name: 'strict', type: 'boolean', description: '是否抛出 ENS Universal Resolver 返回的错误。' },
+      { name: 'universalResolverAddress', type: 'Address', description: '覆盖默认 ENS Universal Resolver 地址。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'string | null | undefined', description: '主 ENS 名称；未设置时为 null，未完成查询时为 undefined。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['反向解析结果应再正向解析并核对地址，不能单独作为身份授权依据。', '钱包当前在其他链时仍可通过 chainId: mainnet.id 查询 ENS。', '未设置反向记录是正常结果，应回退显示缩略地址。'],
+  },
+  {
+    id: 'useEnsAddress',
+    category: 'ENS',
+    title: 'useEnsAddress',
+    kind: 'Query',
+    summary: '把 ENS 名称正向解析为地址，用于支持用户输入 human-readable Ethereum 名称。',
+    code: `// 把用户输入的 ENS 名称解析成 Ethereum 地址
+const ensAddress = useEnsAddress({
+  name: ensInput,
+  chainId: mainnet.id,
+  query: {
+    // 空字符串时不查询 Resolver
+    enabled: Boolean(ensInput),
+    staleTime: 5 * 60_000,
+    retry: 2,
+  },
+})
+
+// 没有解析记录时为 null，发送交易前必须再次检查
+if (ensAddress.data) {
+  console.log('解析地址', ensAddress.data)
+}
+
+console.log(ensAddress.isFetching, ensAddress.error)`,
+    parameters: [
+      { name: 'name', type: 'string', required: true, description: '需要解析的 ENS 名称，例如 vitalik.eth。' },
+      { name: 'coinType', type: 'bigint', description: 'ENSIP-9 币种类型；Ethereum 默认为 60n。' },
+      { name: 'chainId', type: 'number', description: 'ENS 注册表所在链，通常为 Ethereum Mainnet。' },
+      { name: 'blockNumber / blockTag', type: 'bigint / BlockTag', description: '按指定链上状态解析。' },
+      { name: 'gatewayUrls', type: 'string[]', description: 'CCIP Read 网关地址。' },
+      { name: 'strict', type: 'boolean', description: '是否抛出 ENS Universal Resolver 返回的错误。' },
+      { name: 'universalResolverAddress', type: 'Address', description: '覆盖默认 ENS Universal Resolver 地址。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'Address | null | undefined', description: '解析得到的地址；名称无记录时为 null。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['ENS 名称和解析记录可能变化，交易确认界面必须展示最终地址。', '解析结果为 null 与 RPC 查询错误是不同状态。', '仅前端解析不适合作为长期收款地址缓存，关键业务应在发送前重新确认。'],
+  },
+  {
     id: 'useReadContract',
     category: '智能合约',
     title: 'useReadContract',
@@ -1647,6 +2067,55 @@ console.log(write.status, write.isSuccess, write.error)
     notes: ['写入后继续使用 useWaitForTransactionReceipt 判断最终状态。'],
   },
   {
+    id: 'useContractEvents',
+    category: '智能合约',
+    title: 'useContractEvents',
+    kind: 'Query',
+    summary: '查询指定区块范围内已经发生的合约事件日志，并使用 ABI 解码参数。',
+    code: `// 查询一段已确定区块范围内的 ERC-20 Transfer 历史事件
+const transfers = useContractEvents({
+  address: tokenAddress,
+  abi: erc20Abi,
+  eventName: 'Transfer',
+  // indexed 参数可以在 RPC 层过滤，减少返回数据量
+  args: { from: ownerAddress },
+  fromBlock: startBlock,
+  toBlock: endBlock,
+  chainId: mainnet.id,
+  // strict 要求日志的数据布局完整匹配 ABI
+  strict: true,
+  query: {
+    enabled: startBlock <= endBlock,
+    staleTime: Infinity,
+    retry: 2,
+  },
+})
+
+// data 是历史日志数组，不会持续接收未来事件
+for (const log of transfers.data ?? []) {
+  console.log(log.transactionHash, log.args)
+}`,
+    parameters: [
+      { name: 'address', type: 'Address | Address[]', description: '目标合约地址或地址列表。' },
+      { name: 'abi', type: 'Abi', required: true, description: '用于定义事件并解码日志的 ABI。' },
+      { name: 'eventName', type: 'string', description: '需要查询的 ABI 事件名称。' },
+      { name: 'args', type: 'ABI 推导对象', description: '按 indexed 事件参数过滤日志。' },
+      { name: 'fromBlock / toBlock', type: 'bigint | BlockTag', description: '查询的起止区块范围。' },
+      { name: 'blockHash', type: 'Hash', description: '只查询指定区块；不能与 fromBlock、toBlock 同时使用。' },
+      { name: 'strict', type: 'boolean', description: '是否只返回严格符合 ABI 参数布局的日志。' },
+      { name: 'chainId', type: 'number', description: '合约所在链。' },
+      ...commonQueryParameters,
+    ],
+    returns: [
+      { name: 'data', type: 'Log[] | undefined', description: '经过 ABI 解码的历史事件日志。' },
+      { name: 'data[n].args', type: 'ABI 推导对象', description: '解码后的事件参数。' },
+      { name: 'data[n].transactionHash', type: 'Hash | null', description: '产生该日志的交易 Hash。' },
+      { name: 'data[n].blockNumber', type: 'bigint | null', description: '日志所在区块高度。' },
+      ...commonQueryReturns,
+    ],
+    notes: ['它查询历史日志；监听未来日志使用 useWatchContractEvent。', 'RPC 通常限制单次日志查询的区块跨度，生产代码应分段查询并记录游标。', '链重组可能移除或替换日志，索引业务必须处理 removed、确认数和幂等。'],
+  },
+  {
     id: 'useWatchContractEvent',
     category: '智能合约',
     title: 'useWatchContractEvent',
@@ -1672,6 +2141,52 @@ useWatchContractEvent({
     ],
     returns: [],
     notes: ['WebSocket RPC 更适合实时监听；HTTP 通常通过轮询实现。', '回调可能收到重复日志，业务处理需要幂等。'],
+  },
+  {
+    id: 'sepoliaTransactionExercise',
+    category: '实战练习',
+    title: 'Sepolia 交易闭环',
+    kind: 'Exercise',
+    summary: '独立完成从连接 Injected 钱包到发送 Sepolia 测试交易、等待 Receipt 并刷新余额的完整流程。',
+    code: `// 作答文件：src/sepolia-transaction-exercise.tsx
+// 当前文件已经导出并挂载组件，你只需要在该文件内完成以下步骤：
+
+// 1. 导入连接、状态、切链、余额、发送交易和 Receipt Hooks
+// 2. 显示钱包 Connector，并由用户点击连接
+// 3. 将可写操作限制在 Sepolia，错误网络时允许用户主动切换
+// 4. 手动查询原生 ETH 余额，分别处理首次加载与后台刷新
+// 5. 校验接收地址和金额字符串，并使用 parseEther 转成 bigint
+// 6. 用户点击后发送交易，取得 Hash 后持久化
+// 7. 使用 Hash 等待 Receipt，明确区分 success 与 reverted
+// 8. Receipt 返回后失效当前账户的余额 Query
+// 9. 展示每个阶段的 pending、success 和 error 状态
+
+export function SepoliaTransactionExercise() {
+  // TODO：从这里开始完成你的实现
+  return <div>等待实现</div>
+}`,
+    parameters: [
+      { name: 'Connector', type: 'Connector', required: true, description: '从 useConnectors 取得并显示真实钱包名称，不假定一定是 MetaMask。' },
+      { name: 'recipient', type: 'string → Address', required: true, description: '用户输入字符串；通过 isAddress 校验后才能作为接收地址。' },
+      { name: 'amountText', type: 'string → bigint', required: true, description: '人类可读 ETH 字符串；通过 parseEther 转成 Wei bigint。' },
+      { name: 'chainId', type: 'sepolia.id', required: true, description: '查询、切链、发送和等待 Receipt 必须明确使用 Sepolia。' },
+      { name: 'pendingHash', type: 'Hash | undefined', description: '广播后的交易 Hash；刷新页面后仍应可以恢复。' },
+    ],
+    returns: [
+      { name: 'connection', type: 'Connection', description: '当前地址、Connector、chainId 和连接状态。' },
+      { name: 'balance', type: 'GetBalanceData', description: '当前账户的 Sepolia ETH 余额，展示时使用 formatUnits 或 formatEther。' },
+      { name: 'hash', type: 'Hash', description: '钱包成功广播交易后的 Hash，不代表链上执行成功。' },
+      { name: 'receipt.status', type: 'success | reverted', description: '交易被打包后的 EVM 执行结果。' },
+      { name: 'refreshed balance', type: 'GetBalanceData', description: 'Receipt 返回并失效 Query 后重新读取的余额。' },
+    ],
+    notes: [
+      'DApp 不创建或保管用户私钥；钱包账户应由用户在 MetaMask、Rabby 等钱包中创建，本练习只请求连接。',
+      '只允许 Sepolia 测试币交易；发送前必须同时验证连接状态、网络、地址和金额。',
+      '查询按钮使用 isFetching 防止重复请求，交易按钮使用 Mutation 的 isPending 防止重复提交。',
+      'Hash 只表示广播成功；必须等待 Receipt，并读取 data.status 判断 success 或 reverted。',
+      '原生币交易即使 reverted 也可能消耗 Gas，因此 Receipt 返回后发送方余额仍需刷新。',
+      '本地持久化只用于学习恢复；生产资金业务还需要把 Hash 交给后端持续确认并保证幂等。',
+    ],
   },
   {
     id: 'Actions',

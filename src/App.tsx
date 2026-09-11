@@ -12,6 +12,7 @@ function App() {
     () => getLesson(lessonIdFromHash()).id,
   )
   const lesson = getLesson(selectedId)
+  const isExercise = lesson.kind === 'Exercise'
 
   useEffect(() => {
     function handleHashChange() {
@@ -92,12 +93,12 @@ function App() {
           <p className="summary">{lesson.summary}</p>
 
           <section className="content-section">
-            <h2>示例代码</h2>
+            <h2>{isExercise ? '练习入口' : '示例代码'}</h2>
             <pre className="code-block"><code>{lesson.code}</code></pre>
           </section>
 
           <section className="content-section">
-            <h2>常用参数</h2>
+            <h2>{isExercise ? '练习输入' : '常用参数'}</h2>
             {lesson.parameters.length > 0 ? (
               <div className="api-table-wrap">
                 <table className="api-table">
@@ -118,7 +119,7 @@ function App() {
 
           {lesson.returns.length > 0 ? (
             <section className="content-section">
-              <h2>常用返回值</h2>
+              <h2>{isExercise ? '验收结果' : '常用返回值'}</h2>
               <div className="api-table-wrap">
                 <table className="api-table">
                   <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
@@ -137,7 +138,7 @@ function App() {
           ) : null}
 
           <section className="content-section">
-            <h2>关键说明</h2>
+            <h2>{isExercise ? '实现约束' : '关键说明'}</h2>
             <ul className="notes">
               {lesson.notes.map((note) => <li key={note}>{note}</li>)}
             </ul>
@@ -145,7 +146,7 @@ function App() {
 
           {hasLiveDemo(lesson.id) ? (
             <section className="content-section">
-              <h2>运行示例</h2>
+              <h2>{isExercise ? '你的工作区' : '运行示例'}</h2>
               <LiveDemo lessonId={lesson.id} />
             </section>
           ) : null}

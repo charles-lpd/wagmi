@@ -154,6 +154,12 @@
   background: #fffbea;
 }
 
+.kind--exercise {
+  color: var(--accent-strong);
+  border-color: #a9cbb7;
+  background: var(--accent-soft);
+}
+
 .summary {
   max-width: 760px;
   margin: 26px 0 0;
@@ -281,6 +287,42 @@
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.exercise-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.exercise-workspace p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.exercise-workspace code {
+  color: var(--accent-strong);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.exercise-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.exercise-status span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.exercise-status strong {
+  color: var(--text-strong);
+  font-size: 14px;
 }
 
 .button,

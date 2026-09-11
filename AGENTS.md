@@ -18,6 +18,7 @@
 - `src/lessons.ts`：课程分类、示例代码、参数、返回值和说明。
 - `src/live-demo.tsx`：可以直接操作的 wagmi Hook 示例。
 - `src/send-transaction-panel.tsx`：Sepolia 原生币交易和 Receipt 示例。
+- `src/sepolia-transaction-exercise.tsx`：由学习者独立完成的 Sepolia 交易闭环练习文件。
 - `src/App.tsx`：侧边栏、Hash 导航和课程内容编排。
 - `src/App.css`、`src/index.css`：页面样式和设计变量。
 
